@@ -8,7 +8,7 @@ resource "aws_ecr_repository" "this" {
   for_each             = toset(var.repositories)
   name                 = "${var.project}-${each.key}"
   image_tag_mutability = "MUTABLE"
-  force_delete         = false
+  force_delete         = true # allow destroy even when images exist
 
   image_scanning_configuration {
     scan_on_push = true
