@@ -28,6 +28,7 @@ module "runner" {
   instance_type         = var.instance_type
   volume_size_gb        = var.volume_size_gb
   security_group_id     = module.network.security_group_id
+  subnet_id             = module.network.subnet_id
   instance_profile_name = module.iam.instance_profile_name
   github_repo           = var.github_repo
   github_pat_ssm_name   = var.github_pat_ssm_name

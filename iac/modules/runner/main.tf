@@ -2,6 +2,7 @@ variable "project" { type = string }
 variable "instance_type" { type = string }
 variable "volume_size_gb" { type = number }
 variable "security_group_id" { type = string }
+variable "subnet_id" { type = string }
 variable "instance_profile_name" { type = string }
 variable "github_repo" { type = string } # owner/name
 variable "github_pat_ssm_name" { type = string }
@@ -16,6 +17,7 @@ resource "aws_instance" "runner" {
   ami                    = data.aws_ssm_parameter.ubuntu_ami.value
   instance_type          = var.instance_type
   iam_instance_profile   = var.instance_profile_name
+  subnet_id              = var.subnet_id
   vpc_security_group_ids = [var.security_group_id]
 
   metadata_options {

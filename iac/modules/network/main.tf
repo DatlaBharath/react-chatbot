@@ -5,6 +5,13 @@ data "aws_vpc" "default" {
   default = true
 }
 
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
 resource "aws_security_group" "runner" {
   name        = "${var.project}-runner"
   description = "App ports for ${var.project}; no SSH (use SSM)"
@@ -32,6 +39,10 @@ resource "aws_security_group" "runner" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+output "subnet_id" {
+  value = sort(data.aws_subnets.default.ids)[0]
 }
 
 output "security_group_id" {
