@@ -1,0 +1,4 @@
+github_repo = "your-org/chatbot"
+aws_region  = "ap-south-1"
+# app_ingress_cidrs = ["1.2.3.4/32"]
+# app_secret_name   = "chatbot/prod/app"

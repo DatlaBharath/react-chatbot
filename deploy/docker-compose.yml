@@ -1,0 +1,50 @@
+name: chatbot
+
+# All ${VARS} come from /opt/chatbot/.env, which deploy.sh builds at run time from
+# deploy/env/prod.env + AWS Secrets Manager + the image tag.
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql # persists across deployments
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # no published ports: only reachable from the compose network
+
+  backend:
+    image: ${ECR_REGISTRY}/chatbot-backend:${IMAGE_TAG}
+    restart: unless-stopped
+    # explicit list: the backend must not see the MySQL root password
+    environment:
+      APP_NAME: ${APP_NAME}
+      LOG_LEVEL: ${LOG_LEVEL}
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  frontend:
+    image: ${ECR_REGISTRY}/chatbot-frontend:${IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  mysql_data:

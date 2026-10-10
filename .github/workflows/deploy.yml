@@ -1,0 +1,45 @@
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  SECRET_NAME: ${{ vars.APP_SECRET_NAME || 'chatbot/prod/app' }}
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, ec2-deploy] # the t2.xlarge; AWS access comes from its IAM role
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve ECR registry
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          echo "ECR_REGISTRY=$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com" >> "$GITHUB_ENV"
+
+      - name: Login to ECR
+        run: aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+      - name: Build and push images
+        run: |
+          TAG=${GITHUB_SHA::12}
+          for svc in backend:backend frontend:webs; do
+            name=${svc%%:*}; dir=${svc##*:}
+            docker build -t "$ECR_REGISTRY/chatbot-$name:$TAG" -t "$ECR_REGISTRY/chatbot-$name:latest" "$dir"
+            docker push "$ECR_REGISTRY/chatbot-$name:$TAG"
+            docker push "$ECR_REGISTRY/chatbot-$name:latest"
+          done
+          echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
+
+      # .env is generated on the box from deploy/env/prod.env + Secrets Manager; no secrets in GitHub
+      - name: Deploy (replace stack, keep DB, clean old images)
+        run: bash deploy/deploy.sh

@@ -1,0 +1,50 @@
+#!/bin/bash
+# Bootstraps: docker + compose, aws cli, and a GitHub Actions runner registered to ${github_repo}.
+set -euxo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y ca-certificates curl jq unzip git
+
+# Docker + compose plugin
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+
+# AWS CLI v2
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+
+# Deploy directory (used by deploy/deploy.sh)
+useradd -m -s /bin/bash -G docker runner
+mkdir -p /opt/chatbot
+chown runner:runner /opt/chatbot
+
+# Registration token: short-lived, minted from a PAT kept in SSM Parameter Store
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
+PAT=$(aws ssm get-parameter --region "$REGION" --name "${github_pat_ssm_name}" --with-decryption --query Parameter.Value --output text)
+REG_TOKEN=$(curl -s -X POST \
+  -H "Authorization: Bearer $PAT" -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/${github_repo}/actions/runners/registration-token" | jq -r .token)
+
+# Runner binary
+RUNNER_VERSION=$(curl -s https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
+sudo -u runner bash -c "
+  set -e
+  mkdir -p ~/actions-runner && cd ~/actions-runner
+  curl -fsSL -o runner.tar.gz https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-x64-$RUNNER_VERSION.tar.gz
+  tar xzf runner.tar.gz && rm runner.tar.gz
+  ./config.sh --unattended --replace \
+    --url https://github.com/${github_repo} --token $REG_TOKEN \
+    --name ${runner_name} --labels ${runner_labels}
+"
+
+cd /home/runner/actions-runner
+./svc.sh install runner
+./svc.sh start
