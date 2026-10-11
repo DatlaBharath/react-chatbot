@@ -1,5 +1,11 @@
+from functools import lru_cache
+from typing import TYPE_CHECKING
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
+
+if TYPE_CHECKING:
+    from app.core.llm import GemmaLLM
 
 
 class Settings(BaseSettings):
@@ -20,7 +26,8 @@ class Settings(BaseSettings):
     mysql_database: str = "chatbot"
     mysql_user: str = "chatbot"
     mysql_password: str = ""
-
+    gemini_api_key: str = ""
+    gemini_model: str = "gemma-4-26b-a4b-it"
     # Full URL override, e.g. for tests or another DB
     database_url: str = ""
 
@@ -41,3 +48,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+@lru_cache
+def get_model() -> "GemmaLLM":
+    """Chat model built from settings (GEMINI_MODEL / GEMINI_API_KEY)."""
+    from app.core.llm import GemmaLLM  # lazy: keeps langchain out of plain config imports
+
+    return GemmaLLM(model=settings.gemini_model, api_key=settings.gemini_api_key)
