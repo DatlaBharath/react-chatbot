@@ -1,18 +1,13 @@
-import os
 from typing import Any, List, Mapping, Optional, Sequence
 from uuid import uuid4
 
 import requests
-from dotenv import load_dotenv
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable
 from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import Field
-
-load_dotenv()
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -72,8 +67,8 @@ def _messages_to_gemini_payload(messages: List[BaseMessage]) -> dict[str, Any]:
 class GemmaLLM(BaseChatModel):
     """LangChain chat model wrapper around the Gemini API for a Gemma model (LangGraph nodes)."""
 
-    model: str = Field(default_factory=lambda: os.getenv("GEMINI_MODEL", ""))
-    api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    model: str = ""
+    api_key: str = ""
     temperature: float = 0.7
     max_output_tokens: int = 1024
 
