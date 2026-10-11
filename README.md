@@ -8,6 +8,69 @@
 | `deploy/` | `docker-compose.yml`, `deploy.sh`, `env/prod.env` (non-secret vars) |
 | `.github/workflows/` | `pr.yml` (checks on PR), `deploy.yml` (build → ECR → deploy on merge) |
 
+## Architecture
+
+Everything runs in `ap-south-1` (default VPC, one public subnet). Terraform is run from a developer machine; the EC2 instance is both the GitHub Actions runner and the production host.
+
+```mermaid
+flowchart TB
+    user([Users / browser])
+    dev([Developer])
+
+    subgraph GH[GitHub]
+        pr[Pull request<br/>pr.yml: lint, tests, build]
+        main[main branch<br/>deploy.yml: build, push, deploy]
+    end
+
+    subgraph AWS[AWS ap-south-1]
+        subgraph VPC[Default VPC - public subnet]
+            subgraph EC2[EC2 t2.xlarge - Ubuntu 22.04, SG: 80 + 8000 only]
+                runner[GitHub Actions runner<br/>label: ec2-deploy]
+                subgraph DC[Docker Compose - project chatbot]
+                    fe[frontend<br/>nginx :80]
+                    be[backend<br/>FastAPI :8000]
+                    db[(mysql 8<br/>volume mysql_data)]
+                end
+                envf[/opt/chatbot/.env<br/>built at deploy time/]
+            end
+        end
+        ecr[(ECR<br/>chatbot-backend<br/>chatbot-frontend)]
+        sm[Secrets Manager<br/>chatbot/prod/app]
+        ssm[SSM Parameter Store<br/>github-runner-pat]
+        iam[IAM role + instance profile]
+    end
+
+    gemini[Gemini API]
+
+    dev -- git push / open PR --> pr
+    pr -- approved + pr-checks green --> main
+    dev -. terraform apply from laptop .-> AWS
+
+    pr -- job runs on --> runner
+    main -- job runs on --> runner
+    runner -- push images --> ecr
+    runner -- pull images --> ecr
+    sm -- secrets read by deploy.sh --> envf
+    envf --> DC
+    ssm -. PAT used once at boot to register runner .-> runner
+    iam -. grants ECR, secret, SSM access .-> EC2
+
+    user -- HTTP :80 --> fe
+    user -. HTTP :8000 direct .-> be
+    fe -- /api proxy --> be
+    be -- SQL --> db
+    be -- HTTPS --> gemini
+```
+
+| Resource | Created by | Notes |
+|---|---|---|
+| EC2 t2.xlarge, 60 GB encrypted gp3 | `modules/runner` | Docker + GitHub runner installed by user data; IMDSv2 only; no SSH, use SSM Session Manager |
+| Security group | `modules/network` | Inbound 80 and 8000 (`app_ingress_cidrs`), all outbound |
+| ECR repos (backend, frontend) | `modules/ecr` | Scan on push, keep last 10 images |
+| IAM role + instance profile | `modules/iam` | ECR push/pull, read one secret, read the PAT parameter, SSM core |
+| Secrets Manager secret | `modules/secrets` | Random MySQL passwords; add other secrets as JSON keys |
+| SSM SecureString `github-runner-pat` | created by hand | Not in Terraform state |
+
 ## Flow
 
 1. **PR to `main`** → `pr.yml` on the self-hosted runner: ruff + pytest, vitest + build, docker build of both images. `pr-checks` is the single required status.
